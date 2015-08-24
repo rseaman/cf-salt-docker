@@ -1,0 +1,56 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Base Infrastructure",
+  "Parameters": {
+    "Environment": {
+      "Description": "Environment for the infrastructure to be built in",
+      "Default": "production",
+      "Type": "String",
+      "AllowedValues": ["production", "development"],
+      "ConstraintDescription": "production or development"
+    }
+  },
+
+  "Conditions": {
+    "ProdEnv": {"Fn::Equals": [{"Ref": "Environment"}, "production"]}
+  },
+  
+  "Mappings": {
+    "AWSRegionAvailabilityZones": {
+      "us-east-1": {"1": "us-east-1b", "2": "us-east-1c", "3": "us-east-1d", "4": "us-east-1e"}
+    }
+  },
+
+  "Resources": {
+    "VPC": {
+      "Type": "AWS::EC2::VPC",
+      "Properties": {
+        "CidrBlock": {"Fn::If": ["ProdEnv", "10.0.0.0/16", "10.1.0.0/16"]},
+        "Tags": [
+          {"Key": "Name", "Value": {"Fn::If": ["ProdEnv", "ProdVPC", "DevVPC"]}},
+          {"Key": "environment", "Value": {"Ref": "Environment"}}
+        ]
+      }
+    },
+    "IGW": {
+      "Type": "AWS::EC2::InternetGateway",
+      "Properties": {"Tags": [{"Key": "Name", "Value": "InfraIGW"}]}
+    },
+    "AttachIGW": {
+      "Type": "AWS::EC2::VPCGatewayAttachment",
+      "Properties": {
+        "VpcId": {"Ref": "VPC"},
+        "InternetGatewayId": {"Ref": "IGW"}
+      }
+    },
+    "Subnet1": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "AvailabilityZone": {"Fn::FindInMap": ["AWSRegionAvailabilityZones", {"Ref": "AWS::Region"}, "1"]},
+        "CidrBlock": {"Fn::If": ["ProdEnv", "10.0.0.0/24", "10.1.0.0/24"]},
+        "Tags": [{"Key": "environment", "Value": {"Ref": "Environment"}}],
+        "VpcId": {"Ref": "VPC"}
+      }
+    }
+  }
+}

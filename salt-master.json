@@ -1,0 +1,159 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Salt Master",
+  "Parameters": {
+    "Environment": {
+      "Description": "Environment for the infrastructure to be built in",
+      "Default": "production",
+      "Type": "String",
+      "AllowedValues": ["production", "development"],
+      "ConstraintDescription": "production or development"
+    },
+    "AMIId": {
+      "Description": "AMI of SaltStack Master",
+      "Type": "String",
+      "Default": "ami-19bc0e72"
+    },
+    "SubnetId": {
+      "Description": "SubnetId to be deployed to.",
+      "Type": "String"
+    },
+    "KeyPair": {
+      "Description": "Key Pair to be used by SSH.",
+      "Type": "String"
+    },
+    "MasterInstanceType": {
+      "Description": "EC2 instance type of master",
+      "Type": "String",
+      "Default": "t2.micro",
+      "AllowedValues": [
+                         "t2.micro", 
+                         "t2.small", 
+                         "m4.large", 
+                         "c4.large", 
+                         "g2.2xlarge", 
+                         "r3.large"
+                       ],
+      "ConstraintDescription": "Must be a valid EC2 instance type."
+    },
+    "MinionInstanceType": {
+      "Description": "EC2 instance type of minions",
+      "Type": "String",
+      "Default": "t2.micro",
+      "AllowedValues": [
+                         "t2.micro",
+                         "t2.small",
+                         "m4.large",
+                         "c4.large",
+                         "g2.2xlarge",
+                         "r3.large"
+                       ],
+      "ConstraintDescription": "Must be a valid EC2 instance type."
+    },
+    "VPCID": {
+      "Description": "ID of the VPC to deploy the SaltStack Master",
+      "Type": "String"
+    },
+    "EIP": {
+      "Description": "EIP Allocation ID for salt.internal address",
+      "Type": "String"
+    }
+  },
+
+  "Conditions": {
+    "ProdEnv": {"Fn::Equals": [{"Ref": "Environment"}, "production"]},
+    "DevEnv":  {"Fn::Equals": [{"Ref": "Environment"}, "development"]}
+  },
+
+  "Resources": {
+    "SSMasterSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "VpcId": { "Ref": "VPCID" },
+        "GroupDescription": "SaltStack Master Security Group",
+        "SecurityGroupIngress": [
+          {"IpProtocol": "icmp", "FromPort": "-1",   "ToPort": "-1",   "CidrIp": {"Fn::If": ["ProdEnv", "10.0.0.0/24", "10.1.0.0/24"]}},
+          {"IpProtocol": "tcp",  "FromPort": "4505", "ToPort": "4506", "CidrIp": {"Fn::If": ["ProdEnv", "10.0.0.0/24", "10.1.0.0/24"]}},
+          {"IpProtocol": "tcp",  "FromPort": "22",   "ToPort": "22",   "CidrIp": "0.0.0.0/0"}
+        ],
+        "Tags": [
+          {"Key": "Name", "Value": "SaltStack-Master"},
+          {"Key": "environment", "Value": {"Ref": "Environment"}}
+        ]
+      }
+    },
+    "SSMinionSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "VpcId": {"Ref": "VPCID"},
+        "GroupDescription": "SaltStack Minion Security Group",
+        "SecurityGroupIngress": [
+          {"IpProtocol": "icmp", "FromPort": "-1", "ToPort": "-1", "CidrIp": {"Fn::If": ["ProdEnv", "10.0.0.0/24", "10.1.0.0/24"]}},
+          {"IpProtocol": "tcp",  "FromPort": "22", "ToPort": "22", "CidrIp": {"Fn::If": ["ProdEnv", "10.0.0.0/24", "10.1.0.0/24"]}},
+          {"IpProtocol": "tcp",  "FromPort": "80", "ToPort": "80", "CidrIp": "0.0.0.0/0"}
+        ],
+        "Tags": [
+          {"Key": "Name", "Value": "SaltStack-Minion"},
+          {"Key": "environment", "Value": {"Ref": "Environment"}}
+        ]
+      }
+    },
+    "SSMaster": {
+      "Type": "AWS::EC2::Instance",
+      "Metadata": {
+        "Comment1": "Configure SaltStack Master files for deploying docker instances.",
+        "AWS::CloudFormation::Init": {
+          "config": {
+            "files": {
+              "/etc/salt/cloud.profiles.d/docker.conf": {
+                "content": {"Fn::Join": ["", [
+                  "docker_ec2_private:\n",
+                  "  provider: ec2-use1-private-ips\n",
+                  "  image: ami-6dfc4f06\n",
+                  "  size: ", {"Ref": "MinionInstanceType"}, "\n",
+                  "  ssh_username: ec2-user\n",
+                  "  network_interfaces:\n",
+                  "    - DeviceIndex: 0\n",
+                  "      PrivateIpAddresses:\n",
+                  "        - Primary: True\n",
+                  "      AssociatePublicIpAddress: True\n",
+                  "      SubnetId: ", {"Ref": "SubnetId"}, "\n",
+                  "      SecurityGroupId:\n",
+                  "        - ", {"Ref": "SSMinionSecurityGroup"}, "\n"
+                ]]},
+                "mode": "000660",
+                "owner": "ec2-user",
+                "group": "ec2-user"
+              }
+            }
+          }
+        }
+      },
+      "Properties": {
+        "SubnetId": {"Ref": "SubnetId"},
+        "ImageId": {"Ref": "AMIId"},
+        "InstanceType": {"Ref": "MasterInstanceType"},
+        "KeyName": "key1",
+        "SecurityGroupIds": [{"Ref": "SSMasterSecurityGroup"}],
+        "Tags": [
+          {"Key": "Name", "Value": "SaltStack-Master"},
+          {"Key": "environment", "Value": {"Ref": "Environment"}}
+        ],
+        "UserData": { "Fn::Base64": { "Fn::Join" : ["", [
+          "#!/bin/bash -xe\n",
+          "yum update -y aws-cfn-bootstrap\n",
+          "/opt/aws/bin/cfn-init -v ",
+          "     --stack ", {"Ref": "AWS::StackName"},
+          "     --resource SSMaster "
+        ]]}}
+      }
+    },
+    "EIPAssoc": {
+      "Type": "AWS::EC2::EIPAssociation",
+      "Properties": {
+        "AllocationId": {"Ref": "EIP"},
+        "InstanceId": {"Ref": "SSMaster"}
+      }
+    }
+  }
+}

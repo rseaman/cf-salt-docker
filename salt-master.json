@@ -116,10 +116,10 @@
                   "    - DeviceIndex: 0\n",
                   "      PrivateIpAddresses:\n",
                   "        - Primary: True\n",
-                  "      AssociatePublicIpAddress: True\n",
                   "      SubnetId: ", {"Ref": "SubnetId"}, "\n",
                   "      SecurityGroupId:\n",
-                  "        - ", {"Ref": "SSMinionSecurityGroup"}, "\n"
+                  "        - ", {"Ref": "SSMinionSecurityGroup"}, "\n",
+                  "      allocate_new_eip: True\n"
                 ]]},
                 "mode": "000660",
                 "owner": "ec2-user",
